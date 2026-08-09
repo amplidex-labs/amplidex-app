@@ -46,7 +46,11 @@ type Toast = {
   text: string;
   hash?: string;
 } | null;
-type RunTransaction = (label: string, fn: () => Promise<any>) => Promise<void>;
+type RunTransaction = (
+  label: string,
+  fn: () => Promise<any>,
+  actionId?: string
+) => Promise<void>;
 
 type PoolAsset = {
   symbol: string;
@@ -198,7 +202,7 @@ function App() {
   const [walletRestored, setWalletRestored] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [transactionLoading, setTransactionLoading] = useState(false);
+  const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [keeperLoading, setKeeperLoading] = useState(false);
   const refreshInFlight = useRef(false);
@@ -580,20 +584,21 @@ function App() {
     async (
       currentTab: Tab,
       owner: string | null,
-      currentProtocol: AnyMap | null
+      currentProtocol: AnyMap | null,
+      showLoading = true
     ) => {
       if (currentTab === "positions") {
-        setPositionsLoading(true);
+        if (showLoading) setPositionsLoading(true);
         try {
           await loadPositions(owner);
         } finally {
-          setPositionsLoading(false);
+          if (showLoading) setPositionsLoading(false);
         }
         return;
       }
 
       if (currentTab === "keeper") {
-        setKeeperLoading(true);
+        if (showLoading) setKeeperLoading(true);
         try {
           let keeperConfig = currentProtocol;
           if (!keeperConfig) {
@@ -604,7 +609,7 @@ function App() {
           }
           await loadKeeperDashboard(keeperConfig);
         } finally {
-          setKeeperLoading(false);
+          if (showLoading) setKeeperLoading(false);
         }
       }
     },
@@ -634,7 +639,7 @@ function App() {
 
     try {
       const nextProtocol = await loadCommonData(address);
-      await loadCurrentRoute(tab, address, nextProtocol);
+      await loadCurrentRoute(tab, address, nextProtocol, false);
     } finally {
       refreshInFlight.current = false;
       setRefreshing(false);
@@ -694,8 +699,8 @@ function App() {
     });
   }, [tab, address, walletRestored]);
 
-  const transact: RunTransaction = async (label, fn) => {
-    setTransactionLoading(true);
+  const transact: RunTransaction = async (label, fn, actionId = label) => {
+    setProcessingAction(actionId);
     try {
       const out = await fn();
       notify("ok", `${label} completed successfully.`, {
@@ -708,7 +713,7 @@ function App() {
     } catch (error) {
       notify("error", error, { title: `${label} failed` });
     } finally {
-      setTransactionLoading(false);
+      setProcessingAction(null);
     }
   };
 
@@ -894,7 +899,7 @@ function App() {
               <button
                 className="btn-secondary"
                 onClick={() => void refresh()}
-                disabled={refreshing || transactionLoading}
+                disabled={refreshing || processingAction !== null}
                 aria-label="Refresh data"
               >
                 <RefreshCw
@@ -929,6 +934,7 @@ function App() {
               markets={config.markets}
               balances={walletBalances}
               run={transact}
+              processingAction={processingAction}
             />
           )}
           {tab === "pool" && (
@@ -937,6 +943,7 @@ function App() {
               pools={pools}
               balances={walletBalances}
               run={transact}
+              processingAction={processingAction}
             />
           )}
           {tab === "positions" && (
@@ -945,6 +952,7 @@ function App() {
               positions={positions}
               balances={walletBalances}
               run={transact}
+              processingAction={processingAction}
             />
           )}
           {tab === "keeper" && (
@@ -954,6 +962,7 @@ function App() {
               state={keeperState}
               positions={keeperPositions}
               run={transact}
+              processingAction={processingAction}
             />
           )}
           {tab === "wallet" && (
@@ -961,16 +970,14 @@ function App() {
               address={address}
               balances={walletBalances}
               run={transact}
+              processingAction={processingAction}
             />
           )}
           {/* <Loader2 className="animate-spin text-cyan-300" size={38} /> */}
         </main>
       </div>
 
-      {(initialLoading ||
-        transactionLoading ||
-        positionsLoading ||
-        keeperLoading) && (
+      {(initialLoading || positionsLoading || keeperLoading) && (
         <div className="pointer-events-none fixed inset-y-0 left-0 right-0 z-20 grid place-items-center bg-slate-950/25 lg:left-72">
           <Loader2 className="animate-spin text-cyan-300" size={38} />
         </div>
@@ -1148,11 +1155,13 @@ function Trade({
   markets,
   balances,
   run,
+  processingAction,
 }: {
   address: string | null;
   markets: MarketDefinition[];
   balances: WalletBalance[];
   run: RunTransaction;
+  processingAction: string | null;
 }) {
   const [asset, setAsset] = useState(markets[0]?.asset || "");
   const [side, setSide] = useState<"Long" | "Short">("Long");
@@ -1193,7 +1202,7 @@ function Trade({
           sc.u32(leverageBps),
         ]
       )
-    );
+    , "open-position");
   };
 
   return (
@@ -1307,11 +1316,13 @@ function Trade({
         <button
           className="btn-primary mt-3 w-full"
           disabled={
-            !address || !market || collateralBase <= 0n || collateralTooHigh
+            processingAction !== null || !address || !market || collateralBase <= 0n || collateralTooHigh
           }
           onClick={() => void submit()}
         >
-          {!address
+          {processingAction === "open-position" ? (
+            <><Loader2 size={16} className="animate-spin" /> Processing…</>
+          ) : !address
             ? "Connect wallet"
             : collateralTooHigh
             ? "Insufficient USDC balance"
@@ -1353,11 +1364,13 @@ function Pool({
   pools,
   balances,
   run,
+  processingAction,
 }: {
   address: string | null;
   pools: PoolView[];
   balances: WalletBalance[];
   run: RunTransaction;
+  processingAction: string | null;
 }) {
   const [asset, setAsset] = useState("");
   const [amount, setAmount] = useState("");
@@ -1448,7 +1461,7 @@ function Pool({
         sc.address(selected.def.asset),
         sc.i128(depositAmount),
       ])
-    ).then(() => setAmount(""));
+    , "deposit-liquidity").then(() => setAmount(""));
   };
 
   const withdraw = () => {
@@ -1471,7 +1484,7 @@ function Pool({
         sc.address(selected.def.asset),
         sc.i128(enteredShares),
       ])
-    ).then(() => setShares(""));
+    , "withdraw-liquidity").then(() => setShares(""));
   };
 
   return (
@@ -1665,13 +1678,16 @@ function Pool({
             className="btn-primary w-full"
             disabled={
               !address ||
+              processingAction !== null ||
               selectedBalance === null ||
               depositAmount <= 0n ||
               depositExceedsBalance
             }
             onClick={() => void deposit()}
           >
-            {!address
+            {processingAction === "deposit-liquidity" ? (
+              <><Loader2 size={16} className="animate-spin" /> Processing…</>
+            ) : !address
               ? "Connect wallet"
               : depositExceedsBalance
               ? "Insufficient balance"
@@ -1768,13 +1784,16 @@ function Pool({
             className="btn-secondary w-full"
             disabled={
               !address ||
+              processingAction !== null ||
               enteredShares <= 0n ||
               sharesExceedOwned ||
               sharesExceedWithdrawable
             }
             onClick={() => void withdraw()}
           >
-            {!address
+            {processingAction === "withdraw-liquidity" ? (
+              <><Loader2 size={16} className="animate-spin" /> Processing…</>
+            ) : !address
               ? "Connect wallet"
               : sharesExceedOwned
               ? "Insufficient LP shares"
@@ -1794,12 +1813,14 @@ function KeeperDashboard({
   state,
   positions,
   run,
+  processingAction,
 }: {
   address: string | null;
   protocol: AnyMap | null;
   state: KeeperStateView | null;
   positions: KeeperPositionView[];
   run: RunTransaction;
+  processingAction: string | null;
 }) {
   const ready = positions.filter((item) => Boolean(item.risk.liquidatable));
   const close = positions.filter(
@@ -1819,7 +1840,7 @@ function KeeperDashboard({
       invokeContract(address, config.protocolId, "execute_liquidation", [
         sc.address(address),
       ])
-    );
+    , "keeper-liquidation");
   };
 
   return (
@@ -1845,11 +1866,11 @@ function KeeperDashboard({
             </div>
             <button
               className="btn-primary"
-              disabled={!address || !ready.length || Boolean(protocol?.paused)}
+              disabled={processingAction !== null || !address || !ready.length || Boolean(protocol?.paused)}
               onClick={() => void executeNextLiquidation()}
             >
-              <Activity size={16} />
-              {!address
+              {processingAction === "keeper-liquidation" ? <Loader2 size={16} className="animate-spin" /> : <Activity size={16} />}
+              {processingAction === "keeper-liquidation" ? "Processing…" : !address
                 ? "Connect wallet"
                 : protocol?.paused
                 ? "Protocol paused"
@@ -2046,11 +2067,13 @@ function Positions({
   positions,
   balances,
   run,
+  processingAction,
 }: {
   address: string | null;
   positions: AnyMap[];
   balances: WalletBalance[];
   run: RunTransaction;
+  processingAction: string | null;
 }) {
   const [closeById, setCloseById] = useState<Record<string, string>>({});
   const [marginById, setMarginById] = useState<Record<string, string>>({});
@@ -2295,7 +2318,7 @@ function Positions({
                           <button
                             type="button"
                             className="btn-primary"
-                            disabled={marginAmount <= 0n || marginTooHigh}
+                            disabled={processingAction !== null || marginAmount <= 0n || marginTooHigh}
                             onClick={() => {
                               if (marginAmount <= 0n || marginTooHigh) return;
                               void run("Margin increased", () =>
@@ -2309,10 +2332,12 @@ function Positions({
                                     sc.i128(marginAmount),
                                   ]
                                 )
-                              );
+                              , `add-margin-${id}`);
                             }}
                           >
-                            Add margin
+                            {processingAction === `add-margin-${id}` ? (
+                              <><Loader2 size={16} className="animate-spin" /> Processing…</>
+                            ) : "Add margin"}
                           </button>
                         </div>
                         {marginTooHigh && (
@@ -2365,6 +2390,7 @@ function Positions({
                           const percentage = Number(closeById[id] ?? "100");
 
                           return (
+                            processingAction !== null ||
                             !Number.isFinite(percentage) ||
                             percentage <= 0 ||
                             percentage > 100
@@ -2396,13 +2422,14 @@ function Positions({
                                 ),
                               ]
                             )
-                          );
+                          , `close-position-${id}`);
                         }}
                       >
-                        Close{" "}
-                        {Number(closeById[id] ?? "100") === 100
-                          ? "entire position"
-                          : `${closeById[id] ?? "100"}%`}
+                        {processingAction === `close-position-${id}` ? (
+                          <><Loader2 size={16} className="animate-spin" /> Processing…</>
+                        ) : Number(closeById[id] ?? "100") === 100
+                          ? "Close entire position"
+                          : `Close ${closeById[id] ?? "100"}%`}
                       </button>
                     </div>
                   </div>
@@ -2432,10 +2459,12 @@ function WalletPanel({
   address,
   balances,
   run,
+  processingAction,
 }: {
   address: string | null;
   balances: WalletBalance[];
   run: RunTransaction;
+  processingAction: string | null;
 }) {
   const [asset, setAsset] = useState("");
   const [recipient, setRecipient] = useState("");
@@ -2550,7 +2579,7 @@ function WalletPanel({
         <button
           className="btn-primary w-full"
           disabled={
-            !address || !recipient || !selected || entered <= 0n || tooHigh
+            processingAction !== null || !address || !recipient || !selected || entered <= 0n || tooHigh
           }
           onClick={() =>
             void run(`${selected?.def.symbol ?? "Asset"} transferred`, () =>
@@ -2558,11 +2587,13 @@ function WalletPanel({
                 sc.address(address!),
                 sc.address(recipient),
                 sc.i128(entered),
-              ])
+              ]), "wallet-transfer"
             )
           }
         >
-          {tooHigh
+          {processingAction === "wallet-transfer" ? (
+            <><Loader2 size={16} className="animate-spin" /> Processing…</>
+          ) : tooHigh
             ? "Insufficient balance"
             : `Transfer ${selected?.def.symbol ?? "asset"}`}
         </button>
