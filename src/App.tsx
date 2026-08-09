@@ -116,7 +116,11 @@ function asBigInt(value: unknown, fallback = 0n): bigint {
 function parseHumanAmount(value: string, decimals: number): bigint {
   const normalized = value.trim();
   if (!normalized) return 0n;
-  return asBigInt(toBaseUnits(normalized, decimals));
+  try {
+    return asBigInt(toBaseUnits(normalized, decimals));
+  } catch {
+    return 0n;
+  }
 }
 
 function formatHumanAmount(
@@ -936,7 +940,12 @@ function App() {
             />
           )}
           {tab === "positions" && (
-            <Positions address={address} positions={positions} run={transact} />
+            <Positions
+              address={address}
+              positions={positions}
+              balances={walletBalances}
+              run={transact}
+            />
           )}
           {tab === "keeper" && (
             <KeeperDashboard
@@ -2035,14 +2044,19 @@ function normalizePositionStatus(status: unknown): PositionFilter | "unknown" {
 function Positions({
   address,
   positions,
+  balances,
   run,
 }: {
   address: string | null;
   positions: AnyMap[];
+  balances: WalletBalance[];
   run: RunTransaction;
 }) {
   const [closeById, setCloseById] = useState<Record<string, string>>({});
+  const [marginById, setMarginById] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<PositionFilter>("open");
+  const usdcBalance =
+    balances.find((item) => item.def.asset === config.usdcId)?.balance ?? null;
 
   const positionCounts = useMemo(
     () =>
@@ -2157,6 +2171,10 @@ function Positions({
             const preview = p.preview || {};
             const normalizedStatus = normalizePositionStatus(p.status);
             const open = normalizedStatus === "open";
+            const marginInput = marginById[id] ?? "";
+            const marginAmount = parseHumanAmount(marginInput, 7);
+            const marginTooHigh =
+              usdcBalance !== null && marginAmount > usdcBalance;
 
             const statusClasses =
               normalizedStatus === "open"
@@ -2235,84 +2253,158 @@ function Positions({
                 </div>
 
                 {open && (
-                  <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-white/5 pt-5">
-                    <Field label="Close position (%)">
-                      <div className="flex gap-2">
-                        <input
-                          className="input max-w-44"
-                          inputMode="decimal"
-                          value={closeById[id] ?? "100"}
-                          min="0.01"
-                          max="100"
-                          onChange={(e) =>
-                            setCloseById((value) => ({
-                              ...value,
-                              [id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Close %"
-                        />
-
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() =>
-                            setCloseById((value) => ({
-                              ...value,
-                              [id]: "100",
-                            }))
-                          }
-                        >
-                          Max
-                        </button>
+                  <div className="mt-5 grid gap-5 border-t border-white/5 pt-5 lg:grid-cols-2">
+                    <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/5 p-4">
+                      <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+                        <span>Available USDC</span>
+                        <span>
+                          {usdcBalance === null
+                            ? "Unavailable"
+                            : `${formatHumanAmount(usdcBalance, 7)} USDC`}
+                        </span>
                       </div>
-                    </Field>
+                      <Field label="Increase margin (USDC)">
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <input
+                              className="input pr-16"
+                              inputMode="decimal"
+                              value={marginInput}
+                              onChange={(e) =>
+                                setMarginById((value) => ({
+                                  ...value,
+                                  [id]: e.target.value,
+                                }))
+                              }
+                              placeholder="0.00"
+                            />
+                            <button
+                              type="button"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs font-bold text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-40"
+                              disabled={usdcBalance === null || usdcBalance <= 0n}
+                              onClick={() =>
+                                setMarginById((value) => ({
+                                  ...value,
+                                  [id]: formatInputAmount(usdcBalance ?? 0n, 7),
+                                }))
+                              }
+                            >
+                              MAX
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            disabled={marginAmount <= 0n || marginTooHigh}
+                            onClick={() => {
+                              if (marginAmount <= 0n || marginTooHigh) return;
+                              void run("Margin increased", () =>
+                                invokeContract(
+                                  address,
+                                  config.protocolId,
+                                  "add_margin",
+                                  [
+                                    sc.address(address),
+                                    sc.u64(p.id),
+                                    sc.i128(marginAmount),
+                                  ]
+                                )
+                              );
+                            }}
+                          >
+                            Add margin
+                          </button>
+                        </div>
+                        {marginTooHigh && (
+                          <ValidationMessage>
+                            Margin amount exceeds your available USDC balance.
+                          </ValidationMessage>
+                        )}
+                      </Field>
+                      <p className="text-xs leading-5 text-slate-500">
+                        Adds USDC collateral without increasing the position debt.
+                      </p>
+                    </div>
 
-                    <button
-                      className="btn-primary mb-4"
-                      disabled={(() => {
-                        const percentage = Number(closeById[id] ?? "100");
+                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                      <Field label="Close position (%)">
+                        <div className="flex gap-2">
+                          <input
+                            className="input"
+                            inputMode="decimal"
+                            value={closeById[id] ?? "100"}
+                            min="0.01"
+                            max="100"
+                            onChange={(e) =>
+                              setCloseById((value) => ({
+                                ...value,
+                                [id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Close %"
+                          />
 
-                        return (
-                          !Number.isFinite(percentage) ||
-                          percentage <= 0 ||
-                          percentage > 100
-                        );
-                      })()}
-                      onClick={() => {
-                        const percentage = Number(closeById[id] ?? "100");
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() =>
+                              setCloseById((value) => ({
+                                ...value,
+                                [id]: "100",
+                              }))
+                            }
+                          >
+                            Max
+                          </button>
+                        </div>
+                      </Field>
 
-                        if (
-                          !Number.isFinite(percentage) ||
-                          percentage <= 0 ||
-                          percentage > 100
-                        ) {
-                          return;
-                        }
+                      <button
+                        className="btn-primary w-full"
+                        disabled={(() => {
+                          const percentage = Number(closeById[id] ?? "100");
 
-                        void run("Position closed", () =>
-                          invokeContract(
-                            address,
-                            config.protocolId,
-                            "close_position",
-                            [
-                              sc.address(address),
-                              sc.u64(p.id),
-                              sc.optionU32(
-                                percentage === 100
-                                  ? null
-                                  : Math.round(percentage * 100)
-                              ),
-                            ]
-                          )
-                        );
-                      }}
-                    >
-                      Close{" "}
-                      {Number(closeById[id] ?? "100") === 100
-                        ? "entire position"
-                        : `${closeById[id] ?? "100"}%`}
-                    </button>
+                          return (
+                            !Number.isFinite(percentage) ||
+                            percentage <= 0 ||
+                            percentage > 100
+                          );
+                        })()}
+                        onClick={() => {
+                          const percentage = Number(closeById[id] ?? "100");
+
+                          if (
+                            !Number.isFinite(percentage) ||
+                            percentage <= 0 ||
+                            percentage > 100
+                          ) {
+                            return;
+                          }
+
+                          void run("Position closed", () =>
+                            invokeContract(
+                              address,
+                              config.protocolId,
+                              "close_position",
+                              [
+                                sc.address(address),
+                                sc.u64(p.id),
+                                sc.optionU32(
+                                  percentage === 100
+                                    ? null
+                                    : Math.round(percentage * 100)
+                                ),
+                              ]
+                            )
+                          );
+                        }}
+                      >
+                        Close{" "}
+                        {Number(closeById[id] ?? "100") === 100
+                          ? "entire position"
+                          : `${closeById[id] ?? "100"}%`}
+                      </button>
+                    </div>
                   </div>
                 )}
 
