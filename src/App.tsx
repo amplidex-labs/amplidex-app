@@ -689,19 +689,19 @@ function App() {
     ["wallet", "Wallet", Wallet],
   ];
   const titles: Record<Tab, string> = {
-    dashboard: "Protocol Overview",
-    trade: "Open Leveraged Trade (Position)",
-    pool: "Supply or Withdraw Liquidity",
-    positions: "Manage Open Positions",
-    keeper: "Liquidation Keeper Dashboard",
-    wallet: "Wallet Balances and Transfers",
+    dashboard: "Protocol overview",
+    trade: "Open a leveraged position",
+    pool: "Supply and withdraw liquidity",
+    positions: "Manage positions",
+    keeper: "Liquidation keeper",
+    wallet: "Wallet and transfers",
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {toast && (
         <div
-          className={`fixed right-5 top-5 z-[70] max-w-md rounded-xl border px-4 py-3 shadow-xl ${
+          className={`fixed right-5 top-5 z-[70] max-w-md rounded-2xl border px-5 py-4 text-sm shadow-2xl backdrop-blur-xl ${
             toast.type === "ok"
               ? "border-emerald-400/30 bg-emerald-950"
               : "border-rose-400/30 bg-rose-950"
@@ -720,13 +720,13 @@ function App() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-white/10 bg-slate-950/95 p-4 backdrop-blur-xl transition-transform lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-white/10 bg-slate-950/95 p-5 backdrop-blur-xl transition-transform lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex items-center justify-between px-2 py-2">
           <div>
-            <div className="flex items-center gap-2 text-xl font-black">
+            <div className="protocol-wordmark flex items-center gap-2.5 text-xl font-semibold">
               <svg
                 className="h-9 w-9"
                 viewBox="0 0 340 340"
@@ -772,7 +772,7 @@ function App() {
               </svg>
               AmpliDex
             </div>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mono-label mt-2 text-[9px] uppercase text-slate-500">
               Leveraged markets on Stellar
             </p>
           </div>
@@ -784,12 +784,12 @@ function App() {
           </button>
         </div>
 
-        <nav className="mt-8 space-y-1">
+        <nav className="mt-10 space-y-1.5">
           {nav.map(([key, label, Icon]) => (
             <button
               key={key}
               onClick={() => navigate(key)}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${
+              className={`flex w-full items-center gap-3 rounded-full px-4 py-3 text-left text-sm font-semibold transition ${
                 tab === key
                   ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-400/10"
                   : "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -801,8 +801,8 @@ function App() {
           ))}
         </nav>
 
-        <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">
+        <div className="mt-auto rounded-2xl border border-white/10 bg-slate-900/80 p-4">
+          <p className="mono-label text-[9px] uppercase text-slate-500">
             Protocol status
           </p>
           <div className="mt-2 flex items-center gap-2 text-sm font-semibold">
@@ -817,8 +817,8 @@ function App() {
       </aside>
 
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
-          <div className="flex items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/85 backdrop-blur-xl">
+          <div className="flex min-h-[78px] items-center justify-between px-4 py-4 sm:px-6 lg:px-10">
             <div className="flex items-center gap-3">
               <button
                 className="rounded-xl border border-white/10 p-2 text-slate-300 lg:hidden"
@@ -827,10 +827,10 @@ function App() {
                 <Menu size={20} />
               </button>
               <div>
-                <p className="text-xs uppercase tracking-wider text-slate-500">
-                  AmpliDex
+                <p className="mono-label text-[9px] uppercase text-cyan-400">
+                  {config.network} · Soroban
                 </p>
-                <h1 className="text-lg font-bold">{titles[tab]}</h1>
+                <h1 className="mt-1 text-lg font-semibold">{titles[tab]}</h1>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -856,7 +856,7 @@ function App() {
           </div>
         </header>
 
-        <main className="px-4 py-6 sm:px-6 lg:px-8">
+        <main className="mx-auto max-w-[1600px] px-4 py-7 sm:px-6 lg:px-10 lg:py-10">
           {!config.protocolId && (
             <div className="mb-5 rounded-xl border border-amber-400/30 bg-amber-950/40 p-4 text-sm text-amber-200">
               Set VITE_PROTOCOL_CONTRACT_ID in .env.
@@ -2438,11 +2438,11 @@ function AssetSelect({
   const selected = assets.find((asset) => asset.asset === value) ?? assets[0];
   return (
     <div className="relative">
-      {/* <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center gap-3">
+      <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center gap-3">
         <span className="grid h-8 w-8 place-items-center rounded-full bg-cyan-400/15 text-xs font-black text-cyan-300">
           {selected?.symbol?.slice(0, 2) ?? "--"}
         </span>
-      </div> */}
+      </div>
       <select
         className="input h-14 appearance-none pl-14 pr-12 font-semibold"
         value={selected?.asset ?? ""}

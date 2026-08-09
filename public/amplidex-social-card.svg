@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#090a09"/>
+  <g opacity=".12" stroke="#d8ff3e"><path d="M0 90h1200M0 180h1200M0 270h1200M0 360h1200M0 450h1200M0 540h1200"/><path d="M120 0v630M240 0v630M360 0v630M480 0v630M600 0v630M720 0v630M840 0v630M960 0v630M1080 0v630"/></g>
+  <circle cx="1022" cy="118" r="48" fill="none" stroke="#d8ff3e" stroke-width="3"/>
+  <path d="m1022 83 35 35-35 35-35-35Z" fill="#d8ff3e"/>
+  <text x="82" y="105" fill="#f3f5ec" font-family="Arial, sans-serif" font-size="34" font-weight="700">AmpliDex</text>
+  <text x="78" y="315" fill="#f3f5ec" font-family="Arial, sans-serif" font-size="96" font-weight="600" letter-spacing="-5">Leveraged markets.</text>
+  <text x="78" y="415" fill="#d8ff3e" font-family="Arial, sans-serif" font-size="96" font-weight="600" letter-spacing="-5">Stellar settlement.</text>
+  <text x="84" y="510" fill="#aeb2a7" font-family="Arial, sans-serif" font-size="27">Trade · Supply · Manage positions</text>
+</svg>

@@ -1,0 +1,11 @@
+allowBuilds:
+  '@reown/appkit': true
+  '@stellar/stellar-sdk': true
+  blake-hash: true
+  bufferutil: false
+  esbuild: true
+  protobufjs: true
+  secp256k1: true
+  tiny-secp256k1: true
+  usb: false
+  utf-8-validate: false
