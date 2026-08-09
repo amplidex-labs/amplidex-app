@@ -12,6 +12,8 @@ import {
   ArrowUpFromLine,
   BarChart3,
   ChevronDown,
+  CheckCircle2,
+  CircleAlert,
   Coins,
   ExternalLink,
   Gauge,
@@ -27,6 +29,7 @@ import { config, type MarketDefinition } from "./lib/config";
 import { bps, fromBaseUnits, short, toBaseUnits } from "./lib/format";
 import {
   connectWallet,
+  getErrorMessage,
   invokeContract,
   readContract,
   restoreWallet,
@@ -36,7 +39,13 @@ import {
 
 type Tab = "dashboard" | "trade" | "pool" | "positions" | "keeper" | "wallet";
 type AnyMap = Record<string, any>;
-type Toast = { type: "ok" | "error"; text: string } | null;
+type Toast = {
+  id: number;
+  type: "ok" | "error";
+  title: string;
+  text: string;
+  hash?: string;
+} | null;
 type RunTransaction = (label: string, fn: () => Promise<any>) => Promise<void>;
 
 type PoolAsset = {
@@ -189,6 +198,7 @@ function App() {
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [keeperLoading, setKeeperLoading] = useState(false);
   const refreshInFlight = useRef(false);
+  const toastTimer = useRef<number | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [protocol, setProtocol] = useState<AnyMap | null>(null);
   const [markets, setMarkets] = useState<
@@ -231,10 +241,31 @@ function App() {
     return out;
   }, []);
 
-  const notify = (type: "ok" | "error", text: string) => {
-    setToast({ type, text });
-    window.setTimeout(() => setToast(null), 6000);
+  const dismissToast = () => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = null;
+    setToast(null);
   };
+
+  const notify = (
+    type: "ok" | "error",
+    text: unknown,
+    options?: { title?: string; hash?: string }
+  ) => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    setToast({
+      id: Date.now(),
+      type,
+      title: options?.title ?? (type === "ok" ? "Transaction confirmed" : "Action unsuccessful"),
+      text: type === "error" ? getErrorMessage(text) : String(text),
+      hash: options?.hash,
+    });
+    toastTimer.current = window.setTimeout(dismissToast, type === "error" ? 9000 : 6000);
+  };
+
+  useEffect(() => () => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+  }, []);
 
   const navigate = (next: Tab) => {
     setTab(next);
@@ -638,10 +669,7 @@ function App() {
     void loadCommonData(address)
       .catch((error) => {
         if (active) {
-          notify(
-            "error",
-            error instanceof Error ? error.message : String(error)
-          );
+          notify("error", error, { title: "Unable to load protocol data" });
         }
       })
       .finally(() => {
@@ -658,7 +686,7 @@ function App() {
     if (tab !== "positions" && tab !== "keeper") return;
 
     void loadCurrentRoute(tab, address, protocol).catch((error) => {
-      notify("error", error instanceof Error ? error.message : String(error));
+      notify("error", error, { title: "Unable to refresh this view" });
     });
   }, [tab, address, walletRestored]);
 
@@ -666,15 +694,15 @@ function App() {
     setTransactionLoading(true);
     try {
       const out = await fn();
-      notify(
-        "ok",
-        `${label} confirmed${out?.hash ? ` · ${short(out.hash, 8, 8)}` : ""}`
-      );
+      notify("ok", `${label} completed successfully.`, {
+        title: "Transaction confirmed",
+        hash: out?.hash ? String(out.hash) : undefined,
+      });
 
       const nextProtocol = await loadCommonData(address);
       await loadCurrentRoute(tab, address, nextProtocol);
     } catch (error) {
-      notify("error", error instanceof Error ? error.message : String(error));
+      notify("error", error, { title: `${label} failed` });
     } finally {
       setTransactionLoading(false);
     }
@@ -701,13 +729,38 @@ function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {toast && (
         <div
-          className={`fixed right-5 top-5 z-[70] max-w-md rounded-2xl border px-5 py-4 text-sm shadow-2xl backdrop-blur-xl ${
-            toast.type === "ok"
-              ? "border-emerald-400/30 bg-emerald-950"
-              : "border-rose-400/30 bg-rose-950"
+          key={toast.id}
+          role={toast.type === "error" ? "alert" : "status"}
+          aria-live={toast.type === "error" ? "assertive" : "polite"}
+          className={`toast-enter fixed inset-x-4 top-4 z-[70] ml-auto max-w-[430px] overflow-hidden rounded-2xl border bg-slate-900/95 shadow-2xl backdrop-blur-xl sm:right-5 sm:left-auto sm:top-5 ${
+            toast.type === "ok" ? "border-emerald-400/30" : "border-rose-400/30"
           }`}
         >
-          {toast.text}
+          <div className="flex gap-3 p-4 pr-12">
+            <div className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full ${
+              toast.type === "ok" ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"
+            }`}>
+              {toast.type === "ok" ? <CheckCircle2 size={17} /> : <CircleAlert size={17} />}
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-slate-100">{toast.title}</p>
+              <p className="mt-1 break-words text-sm leading-5 text-slate-300">{toast.text}</p>
+              {toast.hash && (
+                <p className="mono-label mt-2 break-all text-[9px] text-slate-500">
+                  TX · {short(toast.hash, 10, 10)}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={dismissToast}
+            className="absolute right-3 top-3 rounded-full p-2 text-slate-500 transition hover:bg-white/5 hover:text-white"
+          >
+            <X size={15} />
+          </button>
+          <span className={`block h-0.5 ${toast.type === "ok" ? "bg-emerald-400" : "bg-rose-400"}`} />
         </div>
       )}
 

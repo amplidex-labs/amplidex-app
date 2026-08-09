@@ -53,9 +53,72 @@ export const sc = {
   side: (v: "Long" | "Short") => xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(v)]),
 };
 
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
+const ERROR_KEYS = [
+  "message",
+  "error",
+  "reason",
+  "detail",
+  "details",
+  "description",
+] as const;
+
+/** Convert wallet, RPC, SDK and contract failures into safe user-facing text. */
+export function getErrorMessage(error: unknown): string {
+  const seen = new WeakSet<object>();
+
+  const read = (value: unknown, depth = 0): string => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value.trim();
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    if (typeof value === "bigint") return value.toString();
+    if (depth > 4) return "";
+
+    if (value instanceof Error) {
+      const message = read(value.message, depth + 1);
+      if (message && message !== "[object Object]") return message;
+      const cause = read(value.cause, depth + 1);
+      if (cause) return cause;
+    }
+
+    if (typeof value === "object") {
+      if (seen.has(value)) return "";
+      seen.add(value);
+      const record = value as Record<string, unknown>;
+
+      for (const key of ERROR_KEYS) {
+        const message = read(record[key], depth + 1);
+        if (message && message !== "[object Object]") return message;
+      }
+
+      const code = read(record.code, depth + 1);
+      const status = read(record.status, depth + 1);
+      if (code || status) return [code, status].filter(Boolean).join(" · ");
+
+      try {
+        const json = JSON.stringify(value, (_key, nested) =>
+          typeof nested === "bigint" ? nested.toString() : nested
+        );
+        if (json && json !== "{}") return json;
+      } catch {
+        return "";
+      }
+    }
+
+    return "";
+  };
+
+  const message = read(error).replace(/^Error:\s*/i, "").trim();
+  if (!message || message === "[object Object]") {
+    return "Something went wrong. Please review the transaction and try again.";
+  }
+
+  if (/user rejected|request rejected|declined|cancelled by user/i.test(message)) {
+    return "The request was cancelled in your wallet.";
+  }
+
+  return message.length > 420 ? `${message.slice(0, 417)}…` : message;
 }
 
 export async function readContract(
@@ -78,7 +141,7 @@ export async function readContract(
     .setTimeout(60)
     .build();
   const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
+  if (rpc.Api.isSimulationError(sim)) throw new Error(getErrorMessage(sim.error));
   if (!sim.result) return null;
   return scValToNative(sim.result.retval);
 }
@@ -99,7 +162,9 @@ export async function invokeContract(
     .setTimeout(180)
     .build();
   const simulation = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(simulation)) throw new Error(simulation.error);
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(getErrorMessage(simulation.error));
+  }
   const prepared = rpc.assembleTransaction(tx, simulation).build();
   const { signedTxXdr } = await StellarWalletsKit.signTransaction(
     prepared.toXDR(),
@@ -138,7 +203,7 @@ export async function safeRead<T>(fn: () => Promise<T>): Promise<T | null> {
   try {
     return await fn();
   } catch (e) {
-    console.warn(errorText(e));
+    console.warn(getErrorMessage(e));
     return null;
   }
 }
