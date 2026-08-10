@@ -195,6 +195,11 @@ function tabFromLocation(): Tab {
   );
 }
 
+function transactionExplorerUrl(hash: string): string {
+  const network = config.network === "PUBLIC" ? "public" : "testnet";
+  return `https://stellar.expert/explorer/${network}/tx/${encodeURIComponent(hash)}`;
+}
+
 function App() {
   const [address, setAddress] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>(() => tabFromLocation());
@@ -755,9 +760,16 @@ function App() {
               <p className="font-semibold text-slate-100">{toast.title}</p>
               <p className="mt-1 break-words text-sm leading-5 text-slate-300">{toast.text}</p>
               {toast.hash && (
-                <p className="mono-label mt-2 break-all text-[9px] text-slate-500">
+                <a
+                  href={transactionExplorerUrl(toast.hash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mono-label mt-2 inline-flex items-center gap-1.5 break-all text-[9px] text-slate-500 transition hover:text-emerald-300 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                >
                   TX · {short(toast.hash, 10, 10)}
-                </p>
+                  <ExternalLink size={10} className="shrink-0" aria-hidden="true" />
+                  <span className="sr-only">View transaction on Stellar Expert</span>
+                </a>
               )}
             </div>
           </div>
