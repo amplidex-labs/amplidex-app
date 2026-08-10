@@ -890,7 +890,7 @@ function App() {
               </button>
               <div>
                 <p className="mono-label text-[9px] uppercase text-cyan-400">
-                  {config.network} · Soroban
+                  Public mainnet · Alpha validation — Use with caution
                 </p>
                 <h1 className="mt-1 text-lg font-semibold">{titles[tab]}</h1>
               </div>
