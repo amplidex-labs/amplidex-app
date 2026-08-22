@@ -121,6 +121,31 @@ export function getErrorMessage(error: unknown): string {
   return message.length > 420 ? `${message.slice(0, 417)}…` : message;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForTransactionResult(
+  txHash: string,
+  attempts = 30,
+  intervalMs = 1500
+): Promise<rpc.Api.GetTransactionResponse | null> {
+  for (let i = 0; i < attempts; i++) {
+    await sleep(intervalMs);
+    try {
+      const result = await server.getTransaction(txHash);
+      if (
+        result.status === rpc.Api.GetTransactionStatus.SUCCESS ||
+        result.status === rpc.Api.GetTransactionStatus.FAILED
+      ) {
+        return result;
+      }
+    } catch (error) {
+      // If the RPC returns temporary lookup/network errors, keep polling.
+      console.warn("Transaction lookup failed during confirmation polling:", error);
+    }
+  }
+  return null;
+}
+
 export async function readContract(
   contractId: string,
   method: string,
@@ -178,22 +203,24 @@ export async function invokeContract(
     config.passphrase
   ) as Transaction;
   const sent = await server.sendTransaction(signed);
-  if (sent.status === "ERROR")
-    throw new Error(
-      `Submission failed: ${sent.errorResult?.toXDR("base64") || sent.status}`
-    );
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const result = await server.getTransaction(sent.hash);
-    if (result.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-      return {
-        hash: sent.hash,
-        result: result.returnValue ? scValToNative(result.returnValue) : null,
-      };
-    }
-    if (result.status === rpc.Api.GetTransactionStatus.FAILED)
-      throw new Error(`Transaction failed: ${sent.hash}`);
+
+  const result = await waitForTransactionResult(sent.hash);
+  if (result?.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+    return {
+      hash: sent.hash,
+      result: result.returnValue ? scValToNative(result.returnValue) : null,
+    };
   }
+  if (result?.status === rpc.Api.GetTransactionStatus.FAILED) {
+    throw new Error(`Transaction failed: ${sent.hash}`);
+  }
+
+  if (sent.status === "ERROR") {
+    throw new Error(
+      `Submission status was ${sent.status} and could not be confirmed yet; check explorer for this transaction: ${sent.hash}`
+    );
+  }
+
   throw new Error(
     `Transaction submitted but timed out while waiting: ${sent.hash}`
   );
