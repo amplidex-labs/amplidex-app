@@ -28,7 +28,9 @@ import {
 import { config, type MarketDefinition } from "./lib/config";
 import { bps, fromBaseUnits, short, toBaseUnits } from "./lib/format";
 import {
-  connectWallet,
+  connectWalletWithProvider,
+  getWalletOptions,
+  disconnectWallet,
   getErrorMessage,
   invokeContract,
   readContract,
@@ -96,6 +98,16 @@ type KeeperStateView = {
   actionablePositions: bigint;
   liquidatablePositions: bigint;
 };
+
+type WalletProvider = {
+  id: string;
+  name: string;
+  icon?: string;
+  isAvailable: boolean;
+  url?: string;
+};
+
+const POPULAR_WALLET_IDS = ["freighter", "albedo", "lobstr", "rabet", "xbull"];
 
 const BPS_SCALE = 10_000n;
 const XLM_FEE_RESERVE = 10_000_000n; // 1 XLM at 7 decimals.
@@ -205,12 +217,18 @@ function App() {
   const [tab, setTab] = useState<Tab>(() => tabFromLocation());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [walletRestored, setWalletRestored] = useState(false);
+  const [walletMenuOpen, setWalletMenuOpen] = useState(false);
+  const [walletPickerOpen, setWalletPickerOpen] = useState(false);
+  const [walletProviders, setWalletProviders] = useState<WalletProvider[]>([]);
+  const [walletProvidersLoading, setWalletProvidersLoading] = useState(false);
+  const [connectingWalletId, setConnectingWalletId] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [keeperLoading, setKeeperLoading] = useState(false);
   const refreshInFlight = useRef(false);
+  const walletMenuRef = useRef<HTMLDivElement | null>(null);
   const toastTimer = useRef<number | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [protocol, setProtocol] = useState<AnyMap | null>(null);
@@ -253,6 +271,70 @@ function App() {
     }
     return out;
   }, []);
+
+  useEffect(() => {
+    if (!walletMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const current = walletMenuRef.current;
+      if (!current) return;
+      if (!current.contains(event.target as Node)) {
+        setWalletMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [walletMenuOpen]);
+
+  useEffect(() => {
+    if (!address) setWalletMenuOpen(false);
+  }, [address]);
+
+  useEffect(() => {
+    if (!walletPickerOpen) return;
+    let active = true;
+
+    const loadWallets = async () => {
+      setWalletProvidersLoading(true);
+      try {
+        const wallets = await getWalletOptions();
+        const filteredWallets = wallets
+          .filter((wallet) => POPULAR_WALLET_IDS.includes(wallet.id))
+          .sort(
+            (a, b) =>
+              POPULAR_WALLET_IDS.indexOf(a.id) - POPULAR_WALLET_IDS.indexOf(b.id)
+          );
+        if (active) setWalletProviders(filteredWallets);
+      } catch {
+        if (active) {
+          notify("error", "Unable to load wallet providers.", {
+            title: "Wallet login unavailable",
+          });
+        }
+      } finally {
+        if (active) setWalletProvidersLoading(false);
+      }
+    };
+
+    void loadWallets();
+    return () => {
+      active = false;
+    };
+  }, [walletPickerOpen]);
+
+  useEffect(() => {
+    if (!walletPickerOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setWalletPickerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [walletPickerOpen]);
 
   const dismissToast = () => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
@@ -919,16 +1001,162 @@ function App() {
                   className={refreshing ? "animate-spin" : ""}
                 />
               </button>
-              <button
-                className="btn-primary"
-                onClick={async () => setAddress(await connectWallet())}
-              >
-                <Wallet size={16} />
-                {address ? short(address) : "Connect wallet"}
-              </button>
+              <div className="relative" ref={walletMenuRef}>
+                <button
+                  className="btn-primary inline-flex items-center gap-2"
+                  onClick={async () => {
+                    if (!address) {
+                      setWalletMenuOpen(false);
+                      setWalletPickerOpen(true);
+                      return;
+                    }
+                    setWalletMenuOpen((value) => !value);
+                  }}
+                >
+                  <Wallet size={16} />
+                  <span>{address ? short(address) : "Connect wallet"}</span>
+                  {address ? <ChevronDown size={14} /> : null}
+                </button>
+                {address && walletMenuOpen ? (
+                  <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-slate-700 bg-slate-900/95 p-2 shadow-xl backdrop-blur">
+                    <button
+                      className="btn-secondary w-full justify-start gap-2"
+                      onClick={async () => {
+                        try {
+                          await disconnectWallet();
+                          setAddress(null);
+                          setWalletMenuOpen(false);
+                          notify("ok", "Wallet disconnected", {
+                            title: "Wallet",
+                          });
+                        } catch (error) {
+                          notify("error", error, {
+                            title: "Unable to disconnect wallet",
+                          });
+                        }
+                      }}
+                    >
+                      <X size={16} />
+                      Logout
+                    </button>
+                    <button
+                      className="btn-secondary mt-1 w-full justify-start gap-2"
+                      onClick={() => {
+                        setWalletMenuOpen(false);
+                        setWalletPickerOpen(true);
+                      }}
+                    >
+                      <Wallet size={16} />
+                      Switch wallet
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         </header>
+
+        {walletPickerOpen ? (
+          <div
+            onMouseDown={() => setWalletPickerOpen(false)}
+            className="fixed inset-0 z-40 flex items-center justify-center px-4 py-8"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-950/90 via-slate-950/95 to-black/95" />
+            <div
+              className="relative z-10 w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/90 p-5 shadow-2xl backdrop-blur-xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.08em] text-slate-400">
+                    Wallet
+                  </p>
+                  <h3 className="text-xl font-semibold text-white">Connect wallet</h3>
+                </div>
+                <button
+                  className="rounded-lg border border-slate-700 px-2 py-1 text-sm text-slate-200 transition hover:bg-slate-800"
+                  onClick={() => setWalletPickerOpen(false)}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <p className="mb-4 text-sm text-slate-300">
+                Pick a provider to continue. Wallets marked unavailable may require extension setup.
+              </p>
+              {walletProvidersLoading ? (
+                <div className="rounded-xl border border-slate-700/40 bg-slate-800/40 px-3 py-5 text-sm text-slate-300">
+                  Loading wallet providers...
+                </div>
+              ) : null}
+              {!walletProvidersLoading ? (
+                <div className="space-y-2">
+                    {walletProviders.length === 0 ? (
+                      <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-3 py-5 text-sm text-amber-200">
+                      No wallets were found. Check your wallet extensions and reload.
+                      </div>
+                    ) : (
+                    walletProviders.map((wallet) => (
+                      <button
+                        key={wallet.id}
+                        className="group flex w-full items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/60 p-3 text-left transition hover:border-cyan-400 hover:bg-slate-800"
+                        disabled={connectingWalletId === wallet.id || (!wallet.isAvailable && !wallet.url)}
+                        onClick={async () => {
+                          if ((!wallet.isAvailable && !wallet.url) || connectingWalletId) return;
+                          setConnectingWalletId(wallet.id);
+                          try {
+                            const nextAddress = await connectWalletWithProvider(wallet.id);
+                            if (!nextAddress) {
+                              throw new Error("Wallet did not return an address.");
+                            }
+                            setAddress(nextAddress);
+                            setWalletPickerOpen(false);
+                          } catch (error) {
+                            notify("error", error, {
+                              title: "Wallet connection failed",
+                            });
+                          } finally {
+                            setConnectingWalletId(null);
+                          }
+                        }}
+                      >
+                        {wallet.icon ? (
+                          <img
+                            src={wallet.icon}
+                            alt={wallet.name}
+                            className="h-8 w-8 rounded-sm border border-slate-600 bg-white object-contain p-0.5"
+                          />
+                        ) : (
+                          <span className="grid h-8 w-8 place-items-center rounded-sm border border-slate-600 bg-slate-700 text-xs font-semibold text-white">
+                            {wallet.name[0]}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium text-slate-100">{wallet.name}</p>
+                          {!wallet.isAvailable ? (
+                            <p className="truncate text-xs text-slate-400">
+                              {wallet.url ? "Install wallet to continue" : "Currently unavailable"}
+                            </p>
+                          ) : (
+                            <p className="truncate text-xs text-slate-500">Ready to connect</p>
+                          )}
+                        </div>
+                        <span className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-slate-300">
+                          {connectingWalletId === wallet.id
+                            ? "Connecting"
+                            : wallet.isAvailable
+                              ? "Connect"
+                              : "Unavailable"}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <main className="mx-auto max-w-[1600px] px-4 py-7 sm:px-6 lg:px-10 lg:py-10">
           {!config.protocolId && (

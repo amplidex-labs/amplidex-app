@@ -35,6 +35,37 @@ export async function connectWallet(): Promise<string> {
   return address;
 }
 
+export async function getWalletOptions() {
+  initWalletKit();
+  const wallets = await StellarWalletsKit.refreshSupportedWallets();
+  return wallets
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((wallet) => ({
+      id: wallet.id,
+      name: wallet.name,
+      icon: wallet.icon,
+      isAvailable: wallet.isAvailable,
+      url: wallet.url,
+    }));
+}
+
+export async function connectWalletWithProvider(walletId: string): Promise<string> {
+  initWalletKit();
+  StellarWalletsKit.setWallet(walletId);
+  const { address } = await StellarWalletsKit.fetchAddress();
+  return address;
+}
+
+export async function disconnectWallet(): Promise<void> {
+  initWalletKit();
+  try {
+    await StellarWalletsKit.disconnect();
+  } catch (error) {
+    throw new Error(getErrorMessage(error));
+  }
+}
+
 export async function restoreWallet(): Promise<string | null> {
   try {
     initWalletKit();
