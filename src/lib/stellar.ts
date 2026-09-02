@@ -14,6 +14,10 @@ import {
 import { StellarWalletsKit } from "@creit-tech/stellar-wallets-kit/sdk";
 import { defaultModules } from "@creit-tech/stellar-wallets-kit/modules/utils";
 import { config } from "./config";
+import {
+  resolveTransactionInvocation,
+  waitForTransactionResult,
+} from "./transactionConfirmation";
 
 let initialized = false;
 export function initWalletKit() {
@@ -123,29 +127,6 @@ export function getErrorMessage(error: unknown): string {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function waitForTransactionResult(
-  txHash: string,
-  attempts = 30,
-  intervalMs = 1500
-): Promise<rpc.Api.GetTransactionResponse | null> {
-  for (let i = 0; i < attempts; i++) {
-    await sleep(intervalMs);
-    try {
-      const result = await server.getTransaction(txHash);
-      if (
-        result.status === rpc.Api.GetTransactionStatus.SUCCESS ||
-        result.status === rpc.Api.GetTransactionStatus.FAILED
-      ) {
-        return result;
-      }
-    } catch (error) {
-      // If the RPC returns temporary lookup/network errors, keep polling.
-      console.warn("Transaction lookup failed during confirmation polling:", error);
-    }
-  }
-  return null;
-}
-
 export async function readContract(
   contractId: string,
   method: string,
@@ -204,26 +185,25 @@ export async function invokeContract(
   ) as Transaction;
   const sent = await server.sendTransaction(signed);
 
-  const result = await waitForTransactionResult(sent.hash);
-  if (result?.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+  const result = await waitForTransactionResult(
+    sent.hash,
+    30,
+    1500,
+    (hash) => server.getTransaction(hash),
+    sleep
+  );
+  const outcome = resolveTransactionInvocation(sent, result);
+
+  if (outcome.type === "success") {
     return {
-      hash: sent.hash,
-      result: result.returnValue ? scValToNative(result.returnValue) : null,
+      hash: outcome.hash,
+      result: outcome.returnValue ? scValToNative(outcome.returnValue) : null,
     };
   }
-  if (result?.status === rpc.Api.GetTransactionStatus.FAILED) {
-    throw new Error(`Transaction failed: ${sent.hash}`);
+  if (outcome.type === "submissionError" || outcome.type === "failed") {
+    throw new Error(outcome.error);
   }
-
-  if (sent.status === "ERROR") {
-    throw new Error(
-      `Submission status was ${sent.status} and could not be confirmed yet; check explorer for this transaction: ${sent.hash}`
-    );
-  }
-
-  throw new Error(
-    `Transaction submitted but timed out while waiting: ${sent.hash}`
-  );
+  throw new Error(outcome.error);
 }
 
 export async function safeRead<T>(fn: () => Promise<T>): Promise<T | null> {

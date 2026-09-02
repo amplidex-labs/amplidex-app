@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:confirmation-regression": "sucrase-node --transpile-only scripts/check-transaction-confirmation.ts"
   },
   "dependencies": {
     "@creit-tech/stellar-wallets-kit": "npm:@creit.tech/stellar-wallets-kit@^2.2.0",
