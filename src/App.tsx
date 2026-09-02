@@ -107,6 +107,8 @@ type WalletProvider = {
   url?: string;
 };
 
+const POPULAR_WALLET_IDS = ["freighter", "albedo", "lobstr", "rabet", "xbull"];
+
 const BPS_SCALE = 10_000n;
 const XLM_FEE_RESERVE = 10_000_000n; // 1 XLM at 7 decimals.
 const ROUTES: Record<Tab, string> = {
@@ -297,7 +299,13 @@ function App() {
       setWalletProvidersLoading(true);
       try {
         const wallets = await getWalletOptions();
-        if (active) setWalletProviders(wallets);
+        const filteredWallets = wallets
+          .filter((wallet) => POPULAR_WALLET_IDS.includes(wallet.id))
+          .sort(
+            (a, b) =>
+              POPULAR_WALLET_IDS.indexOf(a.id) - POPULAR_WALLET_IDS.indexOf(b.id)
+          );
+        if (active) setWalletProviders(filteredWallets);
       } catch {
         if (active) {
           notify("error", "Unable to load wallet providers.", {
